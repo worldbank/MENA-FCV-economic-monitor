@@ -9,8 +9,10 @@ def plot_dual_metrics_by_country(
     metric_display_info: dict = None,
     sorting_metric: str = None,
     overall_title: str = 'Comparison of Metrics by Country',
+    chart_subtitle: str = None,
+    source_text: str = 'Source: ACLED. Accessed: 2024-10-01',
     figsize: tuple = (15, 8),
-    subtitle: str = 'Source: ACLED. Accessed: 2024-10-01'
+    subtitle: str = None  # Keep for backward compatibility
 ) -> plt.Figure:
     """
     Generates a dual horizontal bar chart for two specified metrics by country.
@@ -24,7 +26,10 @@ def plot_dual_metrics_by_country(
         sorting_metric (str, optional): The name of the metric to use for sorting countries.
                                         If None, countries are not sorted.
         overall_title (str, optional): The main title for the concatenated chart.
+        chart_subtitle (str, optional): Subtitle displayed below the main title.
+        source_text (str, optional): Source information displayed at the bottom.
         figsize (tuple, optional): Figure size (width, height). Defaults to (15, 8).
+        subtitle (str, optional): Deprecated - use source_text instead.
 
     Returns:
         plt.Figure: A matplotlib Figure object.
@@ -83,12 +88,12 @@ def plot_dual_metrics_by_country(
         # Customize subplot
         ax.set_yticks(y_pos)
         ax.set_xlabel(f'', fontsize=11, fontweight='bold')
-        ax.set_title(f'{metric_title}', fontsize=12, fontweight='bold', pad=15)
+        ax.set_title(f'{metric_title}', fontsize=12, fontweight='bold', pad=15, loc='left')
 
         # Only show y-axis labels on leftmost subplot
 
         ax.set_yticklabels(countries, fontsize=10)
-        ax.set_ylabel('Country', fontsize=11, fontweight='bold')
+        #ax.set_ylabel('Country', fontsize=11, fontweight='bold')
        
 
         # Style the subplot
@@ -103,17 +108,29 @@ def plot_dual_metrics_by_country(
         # Set x-axis to start from 0 and add some padding
         ax.set_xlim(0, max(values) * 1.15)
 
+    # Handle backward compatibility for subtitle parameter
+    if subtitle and not source_text:
+        source_text = subtitle
+    
     # Add overall title
-    fig.suptitle(overall_title, fontsize=16, fontweight='bold', y=0.95)
+    fig.suptitle(overall_title, fontsize=16, fontweight='bold', y=0.97, ha='left', x=0.05)
+    
+    # Add subtitle below title if provided
+    if chart_subtitle:
+        fig.text(0.05, 0.90, chart_subtitle, ha='left', va='top', fontsize=12, 
+                color='#555555')
+    
+    # Add source text at the bottom if provided
+    if source_text:
+        fig.text(0.05, 0.02, source_text, ha='left', va='bottom', fontsize=10, 
+                color='#666666', alpha=0.8)
 
-    if subtitle:
-        fig.text(0.05, 0.0050, subtitle, ha='left', va='top', fontsize=12, color='black', alpha=0.7)
-
-
-    # Adjust layout
+    # Adjust layout with proper spacing
     plt.tight_layout()
-    # Ensure enough space for y-axis labels on the left
-    plt.subplots_adjust(left=0.15, top=0.88, bottom=0.05)
+    # Ensure enough space for title, subtitle, y-axis labels, and source
+    # Increased gap between subtitle and subfigure titles
+    top_margin = 0.80 if chart_subtitle else 0.88
+    plt.subplots_adjust(left=0.15, top=top_margin, bottom=0.12)
 
     return fig
 import geopandas as gpd
@@ -129,6 +146,7 @@ def plot_h3_maps_with_boundaries_and_quartiles(gdf,
                                                boundary_gdf, 
                                                cmap_name='Blues', 
                                                title='Geospatial Distribution of Conflict',
+                                               chart_subtitle=None,
                                                source_text=""):
     """
     Creates a multi-panel plot of H3 hexagons with a boundary, one panel for each 
@@ -226,7 +244,7 @@ def plot_h3_maps_with_boundaries_and_quartiles(gdf,
         ctx.add_basemap(ax, source=provider, crs=gdf_web_mercator.crs)
 
         
-        ax.set_title("1st January 2022 - 31st December 2024")
+        ax.set_title("1st January 2022 - 31st December 2024", loc='left')
         ax.set_axis_off()
 
     # Turn off any unused axes
@@ -242,8 +260,18 @@ def plot_h3_maps_with_boundaries_and_quartiles(gdf,
     fig.legend(handles=legend_elements, title=f"Conflict Intensity Index Quartiles", 
                loc='center right', ncol=1, bbox_to_anchor=(0.9, 0.2), frameon=False)
     
-    fig.text(0.12, -0.1, source_text, ha='left', fontsize=9)
+    # Add main title
+    plt.suptitle(f"{title}", fontsize=16, fontweight='bold', y=0.97, ha='left', x=0.05)
+    
+    # Add subtitle below title if provided
+    if chart_subtitle:
+        fig.text(0.05, 0.88, chart_subtitle, ha='left', va='top', fontsize=12, 
+                color='#555555')
+    
+    # Add source text at the bottom if provided
+    if source_text:
+        fig.text(0.12, -0.08, source_text, ha='left', va='bottom', fontsize=9, 
+                color='#666666', alpha=0.8)
 
-    plt.suptitle(f"{title}", fontsize=16)
     plt.tight_layout()
     plt.show()
