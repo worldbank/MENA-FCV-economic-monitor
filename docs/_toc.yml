@@ -9,7 +9,7 @@ parts:
     chapters:
       - file: notebooks/conflict/conflict.md
         sections:
-          - file: notebooks/conflict/acled_report.ipynb
+          #- file: notebooks/conflict/acled_report.ipynb
           - file: notebooks/conflict/acled_report_2.ipynb
           - file: notebooks/conflict/internet-and-conflict.ipynb
       - file: notebooks/linkedin/README
