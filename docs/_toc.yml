@@ -11,7 +11,7 @@ parts:
         sections:
           #- file: notebooks/conflict/acled_report.ipynb
           - file: notebooks/conflict/acled_report_2.ipynb
-          - file: notebooks/conflict/acled_report copy.ipynb
+          - file: notebooks/conflict/acled_report_global.ipynb
           - file: notebooks/conflict/internet-and-conflict.ipynb
       - file: notebooks/linkedin/README
         sections:
