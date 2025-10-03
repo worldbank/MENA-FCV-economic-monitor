@@ -91,7 +91,10 @@ def plot_dual_metrics_by_country(
             # Position text slightly to the right of bar end
             # Bar labels: always comma-separated raw values (no 'M' suffix)
             try:
-                label_txt = f"{float(value):,.0f}"
+                if metric.lower() == 'pc_population':
+                    label_txt = f"{float(value):,.2f}"
+                else:
+                    label_txt = f"{float(value):,.0f}"
             except Exception:
                 label_txt = str(value)
             pad = 0.01 * (np.nanmax(values) if len(values) else 0)
@@ -132,10 +135,12 @@ def plot_dual_metrics_by_country(
             vmax = 1.0
         ax.set_xlim(0, vmax * 1.15)
 
-        # X-axis formatter (millions for population)
+        # X-axis formatter (millions for population; two decimals for pc_population)
         if display_in_millions:
             # Keep millions formatting on axis ticks
             ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x/1_000_000:.3f}M"))
+        elif metric.lower() == 'pc_population':
+            ax.xaxis.set_major_formatter(StrMethodFormatter('{x:,.2f}'))
         else:
             ax.xaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
 
@@ -880,7 +885,10 @@ def plot_top_countries_by_region(
                 xval = bar.get_width()
                 # Bar labels: always comma-separated raw values
                 try:
-                    txt = f"{float(v):,.0f}"
+                    if metric.lower() == 'pc_population':
+                        txt = f"{float(v):,.2f}"
+                    else:
+                        txt = f"{float(v):,.0f}"
                 except Exception:
                     txt = str(v)
                 pad = vmax * 0.01 if vmax > 0 else 0.02
@@ -908,9 +916,11 @@ def plot_top_countries_by_region(
             ax.tick_params(colors='#666666', labelsize=9)
             ax.grid(axis='x', alpha=0.3, linestyle='-', linewidth=0.5)
             ax.set_axisbelow(True)
-            # X-axis formatter (millions for population)
+            # X-axis formatter (millions for population; two decimals for pc_population)
             if display_in_millions:
                 ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x/1_000_000:.3f}M"))
+            elif metric.lower() == 'pc_population':
+                ax.xaxis.set_major_formatter(StrMethodFormatter('{x:,.2f}'))
             else:
                 ax.xaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
 
