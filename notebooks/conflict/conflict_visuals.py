@@ -89,11 +89,15 @@ def plot_dual_metrics_by_country(
         for j, (bar, value) in enumerate(zip(bars, values)):
             width = bar.get_width()
             # Position text slightly to the right of bar end
-            if display_in_millions:
-                label_txt = f"{(value/1_000_000):.3f}M"
-            else:
-                label_txt = f"{np.round(value, 2):,}"
-            ax.text(width + (max(values) if len(values) else 0) * 0.01,
+            # Bar labels: always comma-separated raw values (no 'M' suffix)
+            try:
+                label_txt = f"{float(value):,.0f}"
+            except Exception:
+                label_txt = str(value)
+            pad = 0.01 * (np.nanmax(values) if len(values) else 0)
+            if not np.isfinite(pad):
+                pad = 0.01
+            ax.text(width + pad,
                     bar.get_y() + bar.get_height()/2,
                     label_txt,
                     ha='left', va='center', fontsize=9,
@@ -119,12 +123,18 @@ def plot_dual_metrics_by_country(
         ax.grid(axis='x', alpha=0.3, linestyle='-', linewidth=0.5)
         ax.set_axisbelow(True)
 
-        # Set x-axis to start from 0 and add some padding (guard against all-zero)
-    vmax = max(values) if len(values) else 0
-    ax.set_xlim(0, (vmax if vmax > 0 else 1) * 1.15)
+        # Set x-axis to start from 0 and add some padding (guard against all-zero), per subplot
+        try:
+            vmax = float(np.nanmax(values)) if len(values) else 0.0
+        except ValueError:
+            vmax = 0.0  # all-NaN case
+        if not np.isfinite(vmax) or vmax <= 0:
+            vmax = 1.0
+        ax.set_xlim(0, vmax * 1.15)
 
         # X-axis formatter (millions for population)
         if display_in_millions:
+            # Keep millions formatting on axis ticks
             ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x/1_000_000:.3f}M"))
         else:
             ax.xaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
@@ -784,7 +794,8 @@ def plot_top_countries_by_region(
     if sort_metric not in df.columns:
         raise ValueError(f"sorting_metric '{sort_metric}' not found in DataFrame")
 
-    # Regions in deterministic order (alphabetical)
+    # Regions in deterministic order per request: LCN, SSF, MEA, ECS, EAS
+    desired_codes = ['LCN', 'SSF', 'MEA', 'ECS', 'EAS']
     regions = (
         df[region_col]
         .astype(str)
@@ -793,7 +804,34 @@ def plot_top_countries_by_region(
         .tolist()
     )
     regions = [r for r in regions if r and r.lower() != 'nan']
-    regions.sort()
+
+    ordered_regions = []
+    if 'region_code' in df.columns:
+        pairs = (
+            df[[region_col, 'region_code']]
+            .dropna()
+            .astype(str)
+            .drop_duplicates()
+        )
+        # Add regions that match the desired code order
+        for code in desired_codes:
+            matches = pairs[pairs['region_code'].str.upper() == code][region_col].tolist()
+            for name in matches:
+                if name not in ordered_regions:
+                    ordered_regions.append(name)
+        # Append remaining regions in alphabetical order
+        remaining = [n for n in pairs[region_col].tolist() if n not in ordered_regions]
+        ordered_regions += sorted(list(dict.fromkeys(remaining)))
+    else:
+        # Try to order directly if labels are codes; else append others alphabetically
+        unique_labels = list(dict.fromkeys(regions))
+        for code in desired_codes:
+            matches = [lab for lab in unique_labels if str(lab).upper() == code]
+            ordered_regions.extend(matches)
+        remaining = [lab for lab in unique_labels if lab not in ordered_regions]
+        ordered_regions += sorted(remaining)
+
+    regions = ordered_regions
     if not regions:
         raise ValueError('No regions found to facet')
 
@@ -834,14 +872,19 @@ def plot_top_countries_by_region(
             bars = ax.barh(y_pos, values, color=color, edgecolor='white', linewidth=0.5, alpha=0.9)
 
             # Annotate values at bar ends
-            vmax = float(values.max()) if len(values) and np.isfinite(values).any() else 0.0
+            try:
+                vmax = float(np.nanmax(values)) if len(values) else 0.0
+            except ValueError:
+                vmax = 0.0
             for k, (bar, v) in enumerate(zip(bars, values)):
                 xval = bar.get_width()
-                if display_in_millions:
-                    txt = f"{(v/1_000_000):.3f}M"
-                else:
-                    txt = f"{np.round(v,2):,}"
-                ax.text(xval + (vmax * 0.01 if vmax > 0 else 0.02),
+                # Bar labels: always comma-separated raw values
+                try:
+                    txt = f"{float(v):,.0f}"
+                except Exception:
+                    txt = str(v)
+                pad = vmax * 0.01 if vmax > 0 else 0.02
+                ax.text(xval + pad,
                         bar.get_y() + bar.get_height()/2,
                         txt,
                         ha='left', va='center', fontsize=8, color='#333333')
@@ -850,8 +893,13 @@ def plot_top_countries_by_region(
             ax.set_yticks(y_pos)
             ax.set_yticklabels(y_labels, fontsize=9)
             ax.set_xlabel('')
-            # Region + metric title on each subplot
-            ax.set_title(f"{region} — {title}", fontsize=11, fontweight='bold', loc='left', pad=8)
+            # Titles: show region only once per row (left column).
+            # Left column: Region on first line, metric title on second line.
+            # Other columns: only the metric title.
+            if j == 0:
+                ax.set_title(f"{region}\n{title}", fontsize=11, fontweight='bold', loc='left', pad=8)
+            else:
+                ax.set_title(f"{title}", fontsize=11, fontweight='bold', loc='left', pad=8)
 
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
@@ -872,7 +920,7 @@ def plot_top_countries_by_region(
     # Titles and footer
     fig.suptitle(overall_title, fontsize=16, fontweight='bold', y=0.99, ha='left', x=0.05)
     if chart_subtitle:
-        fig.text(0.05, 0.965, chart_subtitle, ha='left', va='top', fontsize=12, color='#555555')
+        fig.text(0.05, 0.975, chart_subtitle, ha='left', va='top', fontsize=12, color='#555555')
     if source_text:
         fig.text(0.05, 0.02, source_text, ha='left', va='bottom', fontsize=10, color='#666666', alpha=0.8)
 
@@ -1086,8 +1134,54 @@ def plot_grouped_bars_by_region_eventtype(
 
     # Orders
     if region_order is None:
-        region_totals = df.groupby(region_col)[value_col].sum().sort_values(ascending=False)
-        region_order = region_totals.index.tolist()
+        # Desired region code order
+        desired_codes = ['LCN', 'SSF', 'MEA', 'ECS', 'EAS']
+        ordered = []
+        # If a region_code column exists, try to build label order by code
+        if 'region_code' in data.columns and region_col != 'region_code':
+            pairs = (
+                data[[region_col, 'region_code']]
+                .dropna()
+                .astype(str)
+                .drop_duplicates()
+            )
+            for code in desired_codes:
+                matches = pairs[pairs['region_code'].str.upper() == code][region_col].tolist()
+                for lab in matches:
+                    if lab not in ordered:
+                        ordered.append(lab)
+            # Append remaining by descending totals
+            remaining = [lab for lab in df[region_col].dropna().astype(str).unique().tolist() if lab not in ordered]
+            if remaining:
+                rem_totals = (
+                    df[df[region_col].isin(remaining)]
+                    .groupby(region_col)[value_col]
+                    .sum()
+                    .sort_values(ascending=False)
+                    .index
+                    .tolist()
+                )
+                ordered += rem_totals
+            region_order = ordered
+        else:
+            # Fall back: if labels are codes, match directly; else append remaining by totals
+            unique_labels = list(dict.fromkeys(df[region_col].dropna().astype(str).tolist()))
+            for code in desired_codes:
+                for lab in unique_labels:
+                    if lab.upper() == code and lab not in ordered:
+                        ordered.append(lab)
+            remaining = [lab for lab in unique_labels if lab not in ordered]
+            if remaining:
+                rem_totals = (
+                    df[df[region_col].isin(remaining)]
+                    .groupby(region_col)[value_col]
+                    .sum()
+                    .sort_values(ascending=False)
+                    .index
+                    .tolist()
+                )
+                ordered += rem_totals
+            region_order = ordered
     if type_order is None:
         type_order = sorted(df[type_col].dropna().unique().tolist())
 
