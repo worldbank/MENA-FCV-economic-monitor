@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.colors as mcolors
-from matplotlib.ticker import StrMethodFormatter
+from matplotlib.ticker import StrMethodFormatter, FuncFormatter
 
 def plot_dual_metrics_by_country(
     data: pd.DataFrame,
@@ -55,8 +55,11 @@ def plot_dual_metrics_by_country(
     
     metrics_for_plot = valid_metrics # Take only the first two metrics
 
-    # Create figure and subplots for two metrics
+    # Create figure and subplots for N metrics (also supports a single metric)
     fig, axes = plt.subplots(1, len(metrics_for_plot), figsize=figsize, sharey=True)
+    if len(metrics_for_plot) == 1:
+        # When only one subplot, matplotlib returns a single Axes, not an array
+        axes = [axes]
 
     # Set overall style
     plt.style.use('default')
@@ -75,6 +78,9 @@ def plot_dual_metrics_by_country(
         
         values = df_plot[metric].values
 
+        # Decide if we should display in millions (for 'population' metric)
+        display_in_millions = metric.lower() == 'population'
+
         # Create horizontal bar chart
         bars = ax.barh(y_pos, values, color=metric_color, alpha=0.8,
                        edgecolor='white', linewidth=0.5)
@@ -83,9 +89,19 @@ def plot_dual_metrics_by_country(
         for j, (bar, value) in enumerate(zip(bars, values)):
             width = bar.get_width()
             # Position text slightly to the right of bar end
-            ax.text(width + max(values) * 0.01, bar.get_y() + bar.get_height()/2,
-                            f'{np.round(value,2):,}', ha='left', va='center', fontsize=9,
-                            fontweight='bold', color='black')
+            # Bar labels: always comma-separated raw values (no 'M' suffix)
+            try:
+                label_txt = f"{float(value):,.0f}"
+            except Exception:
+                label_txt = str(value)
+            pad = 0.01 * (np.nanmax(values) if len(values) else 0)
+            if not np.isfinite(pad):
+                pad = 0.01
+            ax.text(width + pad,
+                    bar.get_y() + bar.get_height()/2,
+                    label_txt,
+                    ha='left', va='center', fontsize=9,
+                    fontweight='bold', color='black')
 
         # Customize subplot
         ax.set_yticks(y_pos)
@@ -107,8 +123,21 @@ def plot_dual_metrics_by_country(
         ax.grid(axis='x', alpha=0.3, linestyle='-', linewidth=0.5)
         ax.set_axisbelow(True)
 
-        # Set x-axis to start from 0 and add some padding
-        ax.set_xlim(0, max(values) * 1.15)
+        # Set x-axis to start from 0 and add some padding (guard against all-zero), per subplot
+        try:
+            vmax = float(np.nanmax(values)) if len(values) else 0.0
+        except ValueError:
+            vmax = 0.0  # all-NaN case
+        if not np.isfinite(vmax) or vmax <= 0:
+            vmax = 1.0
+        ax.set_xlim(0, vmax * 1.15)
+
+        # X-axis formatter (millions for population)
+        if display_in_millions:
+            # Keep millions formatting on axis ticks
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x/1_000_000:.3f}M"))
+        else:
+            ax.xaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
 
     # Handle backward compatibility for subtitle parameter
     if subtitle and not source_text:
@@ -125,7 +154,7 @@ def plot_dual_metrics_by_country(
     # Add source text at the bottom if provided
     if source_text:
         # Bring source closer to the charts
-        fig.text(0.05, 0.000001, source_text, ha='left', va='bottom', fontsize=10, 
+        fig.text(0.05, -0.000001, source_text, ha='left', va='bottom', fontsize=10, 
                 color='#666666', alpha=0.8)
 
     # Adjust layout with proper spacing
@@ -138,6 +167,67 @@ def plot_dual_metrics_by_country(
     plt.subplots_adjust(left=0.15, top=top_margin, bottom=0.08)
 
     return fig
+
+
+def plot_single_metric_by_country(
+    data: pd.DataFrame,
+    metric: str,
+    category_column: str = 'country',
+    metric_display_info: dict | None = None,
+    sorting_metric: str | None = None,
+    overall_title: str = 'Metric by Country',
+    chart_subtitle: str | None = None,
+    source_text: str | None = 'Source: ACLED. Accessed: 2024-10-01',
+    figsize: tuple = (12, 8),
+) -> plt.Figure:
+    """Convenience wrapper to plot a single horizontal bar chart by country
+    using the same styling as plot_dual_metrics_by_country.
+
+    Args:
+        data: Input DataFrame with [category_column, metric].
+        metric: Column name to plot.
+        category_column: Category column (default 'country').
+        metric_display_info: Optional mapping {metric: {'title': str, 'color': str}}.
+        sorting_metric: Metric to sort countries by (defaults to the metric itself if None).
+        overall_title: Figure title.
+        chart_subtitle: Optional subtitle.
+        source_text: Optional footer/source.
+        figsize: Figure size.
+
+    Returns:
+        Matplotlib Figure.
+    """
+    # Ensure display info contains the requested metric
+    if metric_display_info is None:
+        metric_display_info = {
+            metric: {
+                'title': metric.replace('_', ' ').title(),
+                'color': 'steelblue',
+            }
+        }
+    elif metric not in metric_display_info:
+        # Preserve provided mapping but add defaults for the metric if missing
+        mdi = metric_display_info.copy()
+        mdi[metric] = {
+            'title': metric.replace('_', ' ').title(),
+            'color': 'steelblue',
+        }
+        metric_display_info = mdi
+
+    # Default sorting to the same metric if none provided
+    sorting_metric = sorting_metric or metric
+
+    return plot_dual_metrics_by_country(
+        data=data,
+        metrics_to_plot=[metric],
+        category_column=category_column,
+        metric_display_info=metric_display_info,
+        sorting_metric=sorting_metric,
+        overall_title=overall_title,
+        chart_subtitle=chart_subtitle,
+        source_text=source_text,
+        figsize=figsize,
+    )
 
 
 def _ensure_time_agg(
@@ -643,6 +733,201 @@ def plot_annual_country_bars(
     top_margin = 0.945 if chart_subtitle else 0.975
     plt.subplots_adjust(left=0.06, right=0.98, top=top_margin, bottom=0.08, wspace=0.30, hspace=0.40)
     return fig
+
+
+def plot_top_countries_by_region(
+    data: pd.DataFrame,
+    region_col: str = 'wb_region',
+    category_col: str = 'country',
+    metrics_to_plot: list = ['population', 'pc_population'],
+    metric_display_info: dict | None = None,
+    sorting_metric: str | None = None,
+    top_n: int = 10,
+    overall_title: str = 'Top impacted countries by region',
+    chart_subtitle: str | None = None,
+    source_text: str | None = None,
+    row_height: float = 4.0,
+    col_width: float = 6.5,
+) -> plt.Figure:
+    """Facet horizontal bar charts by region, showing top-N countries per region.
+
+    Mirrors the styling of plot_dual_metrics_by_country. Supports one or two metrics
+    (one column per metric; one row per region). Each subplot contains the top-N
+    countries in that region ranked by sorting_metric (defaults to first metric).
+
+    Args:
+        data: Input DataFrame containing [region_col, category_col] and metric columns.
+        region_col: Column name for region labels.
+        category_col: Category within region (e.g., country names).
+        metrics_to_plot: Metric columns to show as separate subplot columns.
+        metric_display_info: Optional mapping {metric: {'title': str, 'color': str}}.
+        sorting_metric: Metric used to rank top-N within each region. Defaults to first metric.
+        top_n: Number of countries to show per region.
+        overall_title: Figure-level title.
+        chart_subtitle: Optional subtitle.
+        source_text: Optional footer text.
+        row_height: Height per region row.
+        col_width: Width per metric column.
+
+    Returns:
+        Matplotlib Figure.
+    """
+    if metric_display_info is None:
+        metric_display_info = {
+            'population': {'title': 'People Around Conflict Events', 'color': 'steelblue'},
+            'pc_population': {'title': '% of Population Around Conflict', 'color': 'orange'},
+        }
+
+    df = data.copy()
+    if region_col not in df.columns:
+        raise ValueError(f"region_col '{region_col}' not in DataFrame")
+    if category_col not in df.columns:
+        raise ValueError(f"category_col '{category_col}' not in DataFrame")
+
+    valid_metrics = [m for m in metrics_to_plot if m in df.columns]
+    if not valid_metrics:
+        raise ValueError("No valid metrics to plot found in DataFrame")
+    # Limit to at most two metrics to match the styling and spacing
+    valid_metrics = valid_metrics[:2]
+
+    sort_metric = sorting_metric or valid_metrics[0]
+    if sort_metric not in df.columns:
+        raise ValueError(f"sorting_metric '{sort_metric}' not found in DataFrame")
+
+    # Regions in deterministic order per request: LCN, SSF, MEA, ECS, EAS
+    desired_codes = ['LCN', 'SSF', 'MEA', 'ECS', 'EAS']
+    regions = (
+        df[region_col]
+        .astype(str)
+        .dropna()
+        .unique()
+        .tolist()
+    )
+    regions = [r for r in regions if r and r.lower() != 'nan']
+
+    ordered_regions = []
+    if 'region_code' in df.columns:
+        pairs = (
+            df[[region_col, 'region_code']]
+            .dropna()
+            .astype(str)
+            .drop_duplicates()
+        )
+        # Add regions that match the desired code order
+        for code in desired_codes:
+            matches = pairs[pairs['region_code'].str.upper() == code][region_col].tolist()
+            for name in matches:
+                if name not in ordered_regions:
+                    ordered_regions.append(name)
+        # Append remaining regions in alphabetical order
+        remaining = [n for n in pairs[region_col].tolist() if n not in ordered_regions]
+        ordered_regions += sorted(list(dict.fromkeys(remaining)))
+    else:
+        # Try to order directly if labels are codes; else append others alphabetically
+        unique_labels = list(dict.fromkeys(regions))
+        for code in desired_codes:
+            matches = [lab for lab in unique_labels if str(lab).upper() == code]
+            ordered_regions.extend(matches)
+        remaining = [lab for lab in unique_labels if lab not in ordered_regions]
+        ordered_regions += sorted(remaining)
+
+    regions = ordered_regions
+    if not regions:
+        raise ValueError('No regions found to facet')
+
+    nrows = len(regions)
+    ncols = len(valid_metrics)
+    figsize = (max(10.0, ncols * col_width), max(3.5, nrows * row_height))
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+
+    plt.style.use('default')
+    fig.patch.set_facecolor('white')
+
+    for i, region in enumerate(regions):
+        sub = df[df[region_col] == region]
+        if sub.empty:
+            for j in range(ncols):
+                axes[i, j].set_visible(False)
+            continue
+
+        # Rank and take top-N by sorting metric; prefer latest values if duplicates
+        sub2 = sub[[category_col] + list(set(valid_metrics + [sort_metric]))].copy()
+        # Aggregate if duplicates exist
+        sub2 = sub2.groupby(category_col, as_index=False).sum(min_count=1)
+        sub2 = sub2.sort_values(sort_metric, ascending=False).head(top_n)
+        # For pleasant bar order (small to large upward), reverse
+        sub2 = sub2.sort_values(sort_metric, ascending=True)
+
+        y_labels = sub2[category_col].astype(str).tolist()
+        y_pos = np.arange(len(y_labels))
+
+        for j, metric in enumerate(valid_metrics):
+            ax = axes[i, j]
+            info = metric_display_info.get(metric, {})
+            color = info.get('color', plt.cm.Paired(j))
+            title = info.get('title', metric.replace('_', ' ').title())
+
+            values = sub2[metric].values if metric in sub2.columns else np.zeros(len(sub2))
+            display_in_millions = metric.lower() == 'population'
+            bars = ax.barh(y_pos, values, color=color, edgecolor='white', linewidth=0.5, alpha=0.9)
+
+            # Annotate values at bar ends
+            try:
+                vmax = float(np.nanmax(values)) if len(values) else 0.0
+            except ValueError:
+                vmax = 0.0
+            for k, (bar, v) in enumerate(zip(bars, values)):
+                xval = bar.get_width()
+                # Bar labels: always comma-separated raw values
+                try:
+                    txt = f"{float(v):,.0f}"
+                except Exception:
+                    txt = str(v)
+                pad = vmax * 0.01 if vmax > 0 else 0.02
+                ax.text(xval + pad,
+                        bar.get_y() + bar.get_height()/2,
+                        txt,
+                        ha='left', va='center', fontsize=8, color='#333333')
+
+            # Axes labels and style
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(y_labels, fontsize=9)
+            ax.set_xlabel('')
+            # Titles: show region only once per row (left column).
+            # Left column: Region on first line, metric title on second line.
+            # Other columns: only the metric title.
+            if j == 0:
+                ax.set_title(f"{region}\n{title}", fontsize=11, fontweight='bold', loc='left', pad=8)
+            else:
+                ax.set_title(f"{title}", fontsize=11, fontweight='bold', loc='left', pad=8)
+
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_color('#CCCCCC')
+            ax.spines['bottom'].set_color('#CCCCCC')
+            ax.tick_params(colors='#666666', labelsize=9)
+            ax.grid(axis='x', alpha=0.3, linestyle='-', linewidth=0.5)
+            ax.set_axisbelow(True)
+            # X-axis formatter (millions for population)
+            if display_in_millions:
+                ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x/1_000_000:.3f}M"))
+            else:
+                ax.xaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
+
+            # X limits with padding
+            ax.set_xlim(0, (vmax if vmax > 0 else 1) * 1.15)
+
+    # Titles and footer
+    fig.suptitle(overall_title, fontsize=16, fontweight='bold', y=0.99, ha='left', x=0.05)
+    if chart_subtitle:
+        fig.text(0.05, 0.975, chart_subtitle, ha='left', va='top', fontsize=12, color='#555555')
+    if source_text:
+        fig.text(0.05, 0.02, source_text, ha='left', va='bottom', fontsize=10, color='#666666', alpha=0.8)
+
+    plt.tight_layout()
+    top_margin = 0.945 if chart_subtitle else 0.975
+    plt.subplots_adjust(left=0.15, right=0.98, top=top_margin, bottom=0.08, wspace=0.25, hspace=0.35)
+    return fig
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -849,8 +1134,54 @@ def plot_grouped_bars_by_region_eventtype(
 
     # Orders
     if region_order is None:
-        region_totals = df.groupby(region_col)[value_col].sum().sort_values(ascending=False)
-        region_order = region_totals.index.tolist()
+        # Desired region code order
+        desired_codes = ['LCN', 'SSF', 'MEA', 'ECS', 'EAS']
+        ordered = []
+        # If a region_code column exists, try to build label order by code
+        if 'region_code' in data.columns and region_col != 'region_code':
+            pairs = (
+                data[[region_col, 'region_code']]
+                .dropna()
+                .astype(str)
+                .drop_duplicates()
+            )
+            for code in desired_codes:
+                matches = pairs[pairs['region_code'].str.upper() == code][region_col].tolist()
+                for lab in matches:
+                    if lab not in ordered:
+                        ordered.append(lab)
+            # Append remaining by descending totals
+            remaining = [lab for lab in df[region_col].dropna().astype(str).unique().tolist() if lab not in ordered]
+            if remaining:
+                rem_totals = (
+                    df[df[region_col].isin(remaining)]
+                    .groupby(region_col)[value_col]
+                    .sum()
+                    .sort_values(ascending=False)
+                    .index
+                    .tolist()
+                )
+                ordered += rem_totals
+            region_order = ordered
+        else:
+            # Fall back: if labels are codes, match directly; else append remaining by totals
+            unique_labels = list(dict.fromkeys(df[region_col].dropna().astype(str).tolist()))
+            for code in desired_codes:
+                for lab in unique_labels:
+                    if lab.upper() == code and lab not in ordered:
+                        ordered.append(lab)
+            remaining = [lab for lab in unique_labels if lab not in ordered]
+            if remaining:
+                rem_totals = (
+                    df[df[region_col].isin(remaining)]
+                    .groupby(region_col)[value_col]
+                    .sum()
+                    .sort_values(ascending=False)
+                    .index
+                    .tolist()
+                )
+                ordered += rem_totals
+            region_order = ordered
     if type_order is None:
         type_order = sorted(df[type_col].dropna().unique().tolist())
 
